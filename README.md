@@ -10,5 +10,4 @@ Solving a PDE numerically for mesh based/time dependent codes usually involves i
 2.  Compute PCA/DMD/POD (user choice) to select the first N modes. Ex. - [Φ_n]=[Φ_1,Φ_23,Φ_10]
 3.  Solve σ⍺=∂⍺/∂t, where ⍺ is a kxk matrix(k is min. dimension of [Φ_n], the dependent variable C=[Φ_n][⍺].
 4.  Transform [Φ_n] back to C after t timesteps
-
-#### *Fetch snapshots as and when needed
+*Fetch snapshots as and when needed
