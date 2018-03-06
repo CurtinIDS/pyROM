@@ -13,4 +13,46 @@ Solving a PDE numerically for mesh based/time dependent codes usually involves i
 
 *Fetch snapshots as and when needed
 
-*** TEST
+
+## Example
+
+```
+#Import pyROM functions
+from pyROM import *
+
+#Plotting library
+from bokeh.plotting import show, output_notebook
+
+
+f=lambda x:np.sin(np.float(2*np.pi*x[0]))*np.sin(2*np.pi*x[1]) #perturbation
+mydomain=Domain('examples/porous.mat',perturbation=f,cutoff=5,timesteps=24000) #Domain decomposition
+mydomain.march() #Run simulation
+
+
+#POD
+mydomain.pod() #Computes POD and stores the value in mydomain.POD
+
+#DMD 
+mydomain.dmd() #does DMD and stores the values in mydomain.DMD
+
+#Visualize POD
+output_notebook()  #Opens bokeh notebook
+out=mydomain.bokeh_out(mydomain,mydomain.POD,timesteps=300)
+show(out)
+
+#Visualize DMD
+out=mydomain.bokeh_out(mydomain,mydomain.DMD,timesteps=300)
+show(out)
+
+
+#Visualize POD/DMD together
+out=mydomain.bokeh_out(mydomain,mydomain.POD,mydomain.DMD,axis=0,timesteps=300)
+show(out)
+
+#Print timing
+print ("Initialization: "+mydomain.wall
+       +"\nPOD: "+mydomain.POD.wall
+       +"\nDMD: "+mydomain.DMD.wall)
+
+```
+
