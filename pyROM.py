@@ -1,3 +1,14 @@
+#Usage
+#from bokeh.plotting import show, output_notebook
+#f=lambda x:np.sin(np.float(2*np.pi*x[0]))*np.sin(2*np.pi*x[1]) #perturbation
+#mydomain=Domain('examples/porous.mat',perturbation=f,cutoff=8,timesteps=2000)
+#mydomain.march()
+#mydomain.dmd(cutoff=8)
+#mydomain.pod(cutoff=8)
+#out=mydomain.bokeh_out(mydomain,mydomain.POD,mydomain.DMD,axis=0,timesteps=300)
+#show(out)
+
+
 import scipy.io as sio
 import scipy.sparse as sparse
 import numpy as np
@@ -12,7 +23,7 @@ class Domain():
     '''
     Domain for POD and DMD simulation
     '''
-    def __init__(self,mat_file,timesteps=100,total_time=1,cutoff=10,snapshots=25,perturbation=None):
+    def __init__(self,mat_file,timesteps=2000,total_time=1,cutoff=10,snapshots=25,perturbation=None):
         self.wall=time.time() #Start timer to compute walltime
         tmp=copy.deepcopy(locals()) #Don't copy list to another list!
         for each in tmp:
@@ -55,16 +66,13 @@ class Domain():
             for i in range(self.xf.shape[0]):
                 inp.append([self.xf[i],self.yf[j]])
         
-        out=map(perturbation,inp)
+        pert=map(perturbation,inp)
         
         
-        self.u0=np.matrix(list(out)).transpose() #Don't list if using map/reduce in parallel
+        self.u0=np.matrix(list(pert)).transpose() #Don't list if using map/reduce in parallel
 
         correct = lambda x:x-1 #Indices in MATLAB start from 1
-        
-  
         self.uc=np.linalg.solve(self.R_enrich*self.R_enrich.transpose(),(self.R_enrich*self.u0))
-      
         #Set BCs
         nright=np.vectorize(correct)(self.nright)
         nleft=np.vectorize(correct)(self.nleft)
@@ -75,8 +83,7 @@ class Domain():
         for i in np.array([nright,nleft,ntop,nbottom]).flatten():
             for each in i:
                 self.uc[each]=0
-       
-        #self.u0_=self..sz.transpose()*self.uc
+
         self.m=copy.deepcopy(self.Ams.shape[0])
         self.A=copy.deepcopy(self.Ams)
         self.M=copy.deepcopy(self.Mms)
@@ -89,58 +96,88 @@ class Domain():
         S=np.linalg.solve(self.M+(self.dt*self.A),self.M)
         G=np.linalg.solve(self.M+(self.dt*self.A),self.F*self.dt)
         V=np.matrix(np.zeros([self.timesteps,self.u0.shape[0]]))
-        V[0,:]=self.u0.transpose()
+        V[0,:]=np.matrix.flatten(self.u0) #Size is 1xN
         for i in range(1,self.timesteps):
-            V[i,:]=(S*(V[i-1,:].transpose())+G).transpose()
+            V[i,:]=np.matrix.flatten(S*(V[i-1,:].transpose())+G) #size is 1xN
         V=V.transpose()
-        
         
         self.nstart=0
         Q1=np.copy(V[:,self.nstart:self.nstart+self.snapshots])
         Q2=np.copy(V[:,self.nstart+1:self.nstart+self.snapshots+1])
         
+        [d,v]=np.linalg.eig(S) #Eig values, vectors
+
+        ind = np.argsort(d)
+        d_new=np.sort(d)               #ddd in MATLAB
+        v=v[:,ind]
         
-        [v,d]=np.linalg.eig(S)
-        ind = np.argsort(v)
-        d=d[:self.m,ind]  #Check this <<<-------
-        self.Q1=Q1
-        self.Q2=Q2
+        #------------------Debug
+        #self.index=ind
+        #self.v=v
+
+        self.Q1=np.matrix(Q1)
+        self.Q2=np.matrix(Q2)
+
         self.S=S
         self.d=d
         self.V=V
         self.G=G
-       
+        
     def dmd(self,cutoff=10):
         #Compute walltime
         time_start=time.time()
-        
-        Uu,Ss,Ww=np.linalg.svd(self.Q1,full_matrices=False)
-        
+        #Don't use full_matrices as there is shape mismatch in Uu
+        Uu,Ss,Ww=np.linalg.svd(self.Q1,full_matrices=False) 
         Ss=np.diag(Ss)
+        
         Ssinv=np.matrix(np.linalg.inv(Ss))
+
         Ss=np.matrix(Ss)
         Ww=np.matrix(Ww)
         Uv=np.matrix(Uu)
-        self.Q2=np.matrix(self.Q2)
         
+        #--------------------------Debug
+        #self.Ss=Ss
+        #self.Uu=Uu
+        #self.Ww=Ww
+        #self.Ssinv=Ssinv
 
-        S_tilda=Uu.transpose()*self.Q2*Ww*Ssinv
-        mu,Y=np.linalg.eig(S_tilda)
-        ind=np.argsort(mu)
-        mu=mu[ind]
-        mu=np.matrix(mu[:self.m])
+
         
+        S_tilda=Uu.transpose()*self.Q2*Ww.transpose()*Ssinv
+        
+        #----------------------Debug
+        #self.S_tilda=S_tilda
+        #self.Ssinv=Ssinv
+        
+        
+        
+        mu,Y=np.linalg.eig(S_tilda)
+        ind=np.argsort(mu)[::-1] #Descending eigenvalues
+
         DM1=Uu*Y
         DM2=DM1[:self.m,ind]
+        
+        #---------------------Debug
+        #self.ind=ind
+        #self.mu=mu
+        #self.Y=Y
+        #self.DM1=DM1
+        #self.DM2=DM2
+
         DM=DM2[:,:cutoff]
-        solxDM=np.matrix(np.zeros([DM.shape[1],self.timesteps])) #Z's shape is DM.shape[1]
-        solDM=np.matrix(np.zeros([self.V.shape[0],self.timesteps]))
+        
+        #self.DM=DM
+
+        #Used for error analysis
+        #solxDM=np.matrix(np.zeros([DM.shape[1],self.timesteps])) #Z's shape is DM.shape[1]
+        #solDM=np.matrix(np.zeros([self.V.shape[0],self.timesteps]))
         for i in range(self.timesteps):
             Z=DM.transpose()*DM
             xDM=np.linalg.solve(Z,DM.transpose()*self.V[:,i])
-            solxDM[:,i]=xDM
+            #solxDM[:,i]=xDM
             uDM=DM*xDM
-            solDM[:,i]=uDM
+            #solDM[:,i]=uDM
         MD=DM.transpose()*DM
         SD=DM.transpose()*self.S*DM
         SDMD=np.linalg.solve(MD,SD)
@@ -155,7 +192,7 @@ class Domain():
         
         uDMDms_fine = uDMDFine * self.R_enrich
         Vmsfine = self.R_enrich.transpose() * self.V
-        self.DMD=Vmsfine
+        self.DMD=uDMDms_fine.transpose()
         self.DMD.wall=str(np.round(time.time()-time_start,2))+" s"
         
     def pod(self,cutoff=10):
@@ -193,7 +230,7 @@ class Domain():
             uPOD[i,:]=(SPOD*uPOD[i-1,:].transpose()+FPOD).transpose()
             uPODFine[i,:]=(PM* uPOD[i,:].transpose()).transpose()
         uPODms_fine = uPODFine * self.R_enrich;
-        self.POD= self.R_enrich.transpose() * self.V
+        self.POD= uPODms_fine.transpose() #self.R_enrich.transpose() * self.V
         self.POD.values=self.R_enrich.shape
         self.POD.wall=str(np.round(time.time()-time_start,2))+" s"
 
@@ -227,4 +264,3 @@ class Domain():
         p.image(image=[delmeimg],x=0,y=0,dw=6,dh=3,palette="Spectral11")
 
         return p
-
