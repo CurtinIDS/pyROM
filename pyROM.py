@@ -1,19 +1,19 @@
-#Usage
+#Usage:
 #from bokeh.plotting import show, output_notebook
 #f=lambda x:np.sin(np.float(2*np.pi*x[0]))*np.sin(2*np.pi*x[1]) #perturbation
-#mydomain=Domain('examples/porous.mat',perturbation=f,cutoff=8,timesteps=2000)
+#mydomain=Domain('examples/porous.mat',perturbation=f,cutoff=16,timesteps=2000)
 #mydomain.march()
-#mydomain.dmd(cutoff=8)
-#mydomain.pod(cutoff=8)
+#mydomain.dmd(cutoff=15)
+#mydomain.pod(cutoff=15)
 #out=mydomain.bokeh_out(mydomain,mydomain.POD,mydomain.DMD,axis=0,timesteps=300)
 #show(out)
-
 
 import scipy.io as sio
 import scipy.sparse as sparse
 import numpy as np
 import copy
 from matplotlib import animation
+import matplotlib.pyplot as plt
 from itertools import product
 from bokeh.plotting import figure
 import time
@@ -110,10 +110,6 @@ class Domain():
         ind = np.argsort(d)
         d_new=np.sort(d)               #ddd in MATLAB
         v=v[:,ind]
-        
-        #------------------Debug
-        #self.index=ind
-        #self.v=v
 
         self.Q1=np.matrix(Q1)
         self.Q2=np.matrix(Q2)
@@ -135,49 +131,22 @@ class Domain():
         Ss=np.matrix(Ss)
         Ww=np.matrix(Ww)
         Uv=np.matrix(Uu)
-        
-        #--------------------------Debug
-        #self.Ss=Ss
-        #self.Uu=Uu
-        #self.Ww=Ww
-        #self.Ssinv=Ssinv
-
-
-        
+    
         S_tilda=Uu.transpose()*self.Q2*Ww.transpose()*Ssinv
-        
-        #----------------------Debug
-        #self.S_tilda=S_tilda
-        #self.Ssinv=Ssinv
-        
-        
-        
+
         mu,Y=np.linalg.eig(S_tilda)
         ind=np.argsort(mu)[::-1] #Descending eigenvalues
 
         DM1=Uu*Y
         DM2=DM1[:self.m,ind]
         
-        #---------------------Debug
-        #self.ind=ind
-        #self.mu=mu
-        #self.Y=Y
-        #self.DM1=DM1
-        #self.DM2=DM2
-
+        #Choose the highest 'cutoff' modes
         DM=DM2[:,:cutoff]
         
-        #self.DM=DM
-
-        #Used for error analysis
-        #solxDM=np.matrix(np.zeros([DM.shape[1],self.timesteps])) #Z's shape is DM.shape[1]
-        #solDM=np.matrix(np.zeros([self.V.shape[0],self.timesteps]))
         for i in range(self.timesteps):
             Z=DM.transpose()*DM
             xDM=np.linalg.solve(Z,DM.transpose()*self.V[:,i])
-            #solxDM[:,i]=xDM
             uDM=DM*xDM
-            #solDM[:,i]=uDM
         MD=DM.transpose()*DM
         SD=DM.transpose()*self.S*DM
         SDMD=np.linalg.solve(MD,SD)
@@ -185,6 +154,7 @@ class Domain():
         uDMD=np.matrix(np.zeros([self.timesteps,Z.shape[0]]))
         uDMDFine=np.matrix(np.zeros([self.timesteps,DM.shape[0]]))
         uDMD[self.nstart,:]=np.linalg.solve(Z,(DM.transpose()*self.V[:,self.nstart])).transpose()
+        
         #Evolve
         for i in range(self.nstart+1,self.timesteps):
             uDMD[i,:]=(SDMD*(uDMD[i-1,:].transpose())+FDMD).transpose()
@@ -193,6 +163,8 @@ class Domain():
         uDMDms_fine = uDMDFine * self.R_enrich
         Vmsfine = self.R_enrich.transpose() * self.V
         self.DMD=uDMDms_fine.transpose()
+        self.DMD_pristine=Vmsfine
+        self.DMD_error=np.square(mydomain.DMD-mydomain.DMD_pristine)
         self.DMD.wall=str(np.round(time.time()-time_start,2))+" s"
         
     def pod(self,cutoff=10):
@@ -229,11 +201,22 @@ class Domain():
         for i in range(self.nstart+1,self.timesteps):
             uPOD[i,:]=(SPOD*uPOD[i-1,:].transpose()+FPOD).transpose()
             uPODFine[i,:]=(PM* uPOD[i,:].transpose()).transpose()
-        uPODms_fine = uPODFine * self.R_enrich;
-        self.POD= uPODms_fine.transpose() #self.R_enrich.transpose() * self.V
+        uPODms_fine = uPODFine * self.R_enrich
+        self.POD= uPODms_fine.transpose() #
+        self.POD_pristine=self.R_enrich.transpose() * self.V
+        self.POD_error=np.square(mydomain.POD-mydomain.POD_pristine)
         self.POD.values=self.R_enrich.shape
         self.POD.wall=str(np.round(time.time()-time_start,2))+" s"
-
+    
+    def error_plot(self,timestep=0,error='pod'):
+        length=int(self.length)
+        xvec = np.linspace(0,length,length)                       
+        x,y = np.meshgrid(xvec, xvec)
+        z = (self.DMD_error[:,timestep].reshape([length,length])
+             ,self.POD_error[:,timestep].reshape([length,length]))[error=='pod']                               
+        plt.contourf(x, y, z,100)                             
+        plt.colorbar() 
+        
     def bokeh_out(*args,axis=0,timesteps=200):
         #The last axis is always timestep
         cnt=0
