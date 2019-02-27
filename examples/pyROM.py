@@ -164,7 +164,7 @@ class Domain():
         Vmsfine = self.R_enrich.transpose() * self.V
         self.DMD=uDMDms_fine.transpose()
         self.DMD_pristine=Vmsfine
-        self.DMD_error=np.square(mydomain.DMD-mydomain.DMD_pristine)
+        self.DMD_error=np.square(self.DMD-self.DMD_pristine)
         self.DMD.wall=str(np.round(time.time()-time_start,2))+" s"
         
     def pod(self,cutoff=10):
@@ -204,7 +204,7 @@ class Domain():
         uPODms_fine = uPODFine * self.R_enrich
         self.POD= uPODms_fine.transpose() #
         self.POD_pristine=self.R_enrich.transpose() * self.V
-        self.POD_error=np.square(mydomain.POD-mydomain.POD_pristine)
+        self.POD_error=np.square(self.POD-self.POD_pristine)
         self.POD.values=self.R_enrich.shape
         self.POD.wall=str(np.round(time.time()-time_start,2))+" s"
     
